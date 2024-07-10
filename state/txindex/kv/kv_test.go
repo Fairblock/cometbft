@@ -794,8 +794,93 @@ func TestBigInt(t *testing.T) {
 	}
 }
 
+<<<<<<< HEAD
 func BenchmarkTxIndex1(b *testing.B)     { benchmarkTxIndex(1, b) }
 func BenchmarkTxIndex500(b *testing.B)   { benchmarkTxIndex(500, b) }
 func BenchmarkTxIndex1000(b *testing.B)  { benchmarkTxIndex(1000, b) }
 func BenchmarkTxIndex2000(b *testing.B)  { benchmarkTxIndex(2000, b) }
 func BenchmarkTxIndex10000(b *testing.B) { benchmarkTxIndex(10000, b) }
+=======
+func BenchmarkTxIndex(b *testing.B) {
+	testCases := []struct {
+		name     string
+		txsCount int64
+	}{
+		{"1", 1},
+		{"500", 500},
+		{"1000", 1000},
+		{"2000", 2000},
+		{"10000", 10000},
+	}
+
+	for _, tc := range testCases {
+		b.Run(tc.name, func(b *testing.B) {
+			benchmarkTxIndex(b, tc.txsCount)
+		})
+	}
+}
+
+func isSubset(smaller [][]byte, bigger [][]byte) bool {
+	for _, elem := range smaller {
+		if !slices.ContainsFunc(bigger, func(i []byte) bool {
+			return bytes.Equal(i, elem)
+		}) {
+			return false
+		}
+	}
+	return true
+}
+
+func isEqualSets(x [][]byte, y [][]byte) bool {
+	return isSubset(x, y) && isSubset(y, x)
+}
+
+func emptyIntersection(x [][]byte, y [][]byte) bool {
+	for _, elem := range x {
+		if slices.ContainsFunc(y, func(i []byte) bool {
+			return bytes.Equal(i, elem)
+		}) {
+			return false
+		}
+	}
+	return true
+}
+
+func setDiff(bigger [][]byte, smaller [][]byte) [][]byte {
+	var diff [][]byte
+	for _, elem := range bigger {
+		if !slices.ContainsFunc(smaller, func(i []byte) bool {
+			return bytes.Equal(i, elem)
+		}) {
+			diff = append(diff, elem)
+		}
+	}
+	return diff
+}
+
+func TestExtractEventSeqFromKey(t *testing.T) {
+	testCases := []struct {
+		str      string
+		expected string
+	}{
+		{
+			"0/0/0/1234$es$0",
+			"0",
+		},
+		{
+			"0/0/0/1234$es$1234",
+			"1234",
+		},
+		{
+			"0/0/0/1234",
+			"0",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.expected, func(t *testing.T) {
+			assert.Equal(t, extractEventSeqFromKey([]byte(tc.str)), tc.expected)
+		})
+	}
+}
+>>>>>>> 95af24d5e (perf(txindex): search optimization (#3458))

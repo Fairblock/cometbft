@@ -26,9 +26,10 @@ import (
 )
 
 const (
-	tagKeySeparator     = "/"
-	tagKeySeparatorRune = '/'
-	eventSeqSeparator   = "$es$"
+	tagKeySeparator          = "/"
+	tagKeySeparatorRune      = '/'
+	eventSeqSeparator        = "$es$"
+	eventSeqSeperatorRuneAt0 = '$'
 )
 
 var _ txindex.TxIndexer = (*TxIndex)(nil)
@@ -198,6 +199,38 @@ func (txi *TxIndex) indexEvents(result *abci.TxResult, hash []byte, store dbm.Ba
 	return nil
 }
 
+type hashKey struct {
+	hash   string
+	height int64
+}
+
+type hashKeySorter struct {
+	keys []hashKey
+	by   func(t1, t2 *hashKey) bool
+}
+
+func (t *hashKeySorter) Less(i, j int) bool { return t.by(&t.keys[i], &t.keys[j]) }
+func (t *hashKeySorter) Len() int           { return len(t.keys) }
+func (t *hashKeySorter) Swap(i, j int)      { t.keys[i], t.keys[j] = t.keys[j], t.keys[i] }
+
+func byHeightDesc(i, j *hashKey) bool {
+	hi := i.height
+	hj := j.height
+	if hi == hj {
+		return i.hash > j.hash
+	}
+	return hi > hj
+}
+
+func byHeightAsc(i, j *hashKey) bool {
+	hi := i.height
+	hj := j.height
+	if hi == hj {
+		return i.hash < j.hash
+	}
+	return hi < hj
+}
+
 // Search performs a search using the given query.
 //
 // It breaks the query into conditions (like "tx.height > 5"). For each
@@ -305,11 +338,65 @@ func (txi *TxIndex) Search(ctx context.Context, q *query.Query) ([]*abci.TxResul
 		}
 	}
 
+<<<<<<< HEAD
 	results := make([]*abci.TxResult, 0, len(filteredHashes))
 	resultMap := make(map[string]struct{})
 RESULTS_LOOP:
 	for _, h := range filteredHashes {
 
+=======
+	numResults := len(filteredHashes)
+
+	// Convert map keys to slice for deterministic ordering
+	hashKeys := make([]hashKey, 0, numResults)
+	for k, v := range filteredHashes {
+		hashKeys = append(hashKeys, hashKey{hash: k, height: v.Height})
+	}
+
+	var by func(i, j *hashKey) bool
+
+	if pagSettings.OrderDesc {
+		by = byHeightDesc
+	} else {
+		by = byHeightAsc
+	}
+
+	// Sort by height
+	sort.Sort(&hashKeySorter{
+		keys: hashKeys,
+		by:   by,
+	})
+
+	// If paginated, determine which hash keys to return
+	if pagSettings.IsPaginated {
+		// Now that we know the total number of results, validate that the page
+		// requested is within bounds
+		pagSettings.Page, err = validatePage(&pagSettings.Page, pagSettings.PerPage, numResults)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		// Calculate pagination start and end indices
+		startIndex := (pagSettings.Page - 1) * pagSettings.PerPage
+		endIndex := startIndex + pagSettings.PerPage
+
+		// Apply pagination limits
+		if endIndex > len(hashKeys) {
+			endIndex = len(hashKeys)
+		}
+		if startIndex >= len(hashKeys) {
+			return []*abci.TxResult{}, 0, nil
+		}
+
+		hashKeys = hashKeys[startIndex:endIndex]
+	}
+
+	results := make([]*abci.TxResult, 0, len(hashKeys))
+	resultMap := make(map[string]struct{})
+RESULTS_LOOP:
+	for _, hKey := range hashKeys {
+		h := filteredHashes[hKey.hash].TxBytes
+>>>>>>> 95af24d5e (perf(txindex): search optimization (#3458))
 		res, err := txi.Get(h)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get Tx{%X}: %w", h, err)
@@ -715,13 +802,25 @@ func extractValueFromKey(key []byte) string {
 }
 
 func extractEventSeqFromKey(key []byte) string {
+<<<<<<< HEAD
 	parts := strings.SplitN(string(key), tagKeySeparator, -1)
+=======
+	endPos := bytes.LastIndexByte(key, tagKeySeparatorRune)
+>>>>>>> 95af24d5e (perf(txindex): search optimization (#3458))
 
-	lastEl := parts[len(parts)-1]
-
-	if strings.Contains(lastEl, eventSeqSeparator) {
-		return strings.SplitN(lastEl, eventSeqSeparator, 2)[1]
+	if endPos == -1 {
+		return "0"
 	}
+
+	for ; endPos < len(key); endPos++ {
+		if key[endPos] == eventSeqSeperatorRuneAt0 {
+			eventSeq := string(key[endPos:])
+			if eventSeq, ok := strings.CutPrefix(eventSeq, eventSeqSeparator); ok {
+				return eventSeq
+			}
+		}
+	}
+
 	return "0"
 }
 
